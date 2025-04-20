@@ -21,7 +21,7 @@ class YoutubeService {
         null
     ).setApplicationName("YoutubeTrender").build()
 
-    fun getPopularVideos(maxResults: Int = 50): List<VideoDto> {
+    fun getAllPopularVideos(maxResults: Int = 50): List<VideoDto> {
         val response: VideoListResponse = youtube.videos().list("snippet")
             .setChart("mostPopular")
             .setRegionCode("KR")
@@ -36,35 +36,103 @@ class YoutubeService {
         }
     }
 
-    fun getComments(videoId: String): List<CommentDto> {
-        val comments = mutableListOf<CommentDto>()
-        var nextPageToken: String? = null
-        do {
+    fun getPopularVideosByRegionAndCategory(
+        regionCode: String,
+        videoCategoryId: String?,
+        maxResults: Int = 50
+    ): List<VideoDto> {
+        val request = youtube.videos().list("snippet,statistics") // statistics 포함 시 조회수 등 가능
+            .setChart("mostPopular")
+            .setRegionCode(regionCode)
+            .setMaxResults(maxResults.toLong())
+            .setKey(apiKey)
+
+        // 카테고리 ID가 있을 경우 설정
+        videoCategoryId?.let { request.setVideoCategoryId(it) }
+
+        val response: VideoListResponse = request.execute()
+
+        return response.items.mapNotNull { item ->
+            val id = item.id
+            val snippet = item.snippet
+            val title = snippet?.title
+            val channelTitle = snippet?.channelTitle
+            val categoryId = snippet?.categoryId
+            val viewCount = item.statistics?.viewCount
+
+            if (id != null && title != null && channelTitle != null && categoryId != null && viewCount != null) {
+                VideoDto(
+                    id = id,
+                    title = title,
+                    channelTitle = channelTitle,
+                    categoryId = categoryId,
+                    viewCount = viewCount.toLong()
+                )
+            } else {
+                null
+            }
+        }
+    }
+
+    fun getComments(videoId: String, maxComments: Int = 20): List<CommentDto> {
+        return try {
             val request = youtube.commentThreads().list("snippet")
                 .setVideoId(videoId)
-                .setMaxResults(100L)
+                .setMaxResults(100)
                 .setTextFormat("plainText")
                 .setKey(apiKey)
-                .apply {
-                    if (nextPageToken != null) setPageToken(nextPageToken)
-                }
 
             val response = request.execute()
 
-            response.items?.forEach { item ->
-                val snippet = item.snippet
-                val topLevelComment = snippet.topLevelComment.snippet
-                val author = topLevelComment.authorDisplayName
-                val text = topLevelComment.textDisplay
-                comments.add(CommentDto(videoId, author, text))
-            }
-
-            nextPageToken = response.nextPageToken
-        } while (!nextPageToken.isNullOrEmpty())
-
-        return comments
+            response.items
+                .sortedByDescending { it.snippet.topLevelComment.snippet.likeCount }
+                .take(maxComments)
+                .map {
+                    val snippet = it.snippet.topLevelComment.snippet
+                    CommentDto(
+                        videoId = videoId,
+                        text = snippet.textDisplay,
+                        likeCount = snippet.likeCount ?: 0,
+                        author = snippet.authorDisplayName
+                    )
+                }
+        } catch (e: Exception) {
+            println("댓글 오류 ($videoId): ${e.message}")
+            emptyList()
+        }
     }
 }
+
+
+//    fun getComments(videoId: String): List<CommentDto> {
+//        val comments = mutableListOf<CommentDto>()
+//        var nextPageToken: String? = null
+//        do {
+//            val request = youtube.commentThreads().list("snippet")
+//                .setVideoId(videoId)
+//                .setMaxResults(100L)
+//                .setTextFormat("plainText")
+//                .setKey(apiKey)
+//                .apply {
+//                    if (nextPageToken != null) setPageToken(nextPageToken)
+//                }
+//
+//            val response = request.execute()
+//
+//            response.items?.forEach { item ->
+//                val snippet = item.snippet
+//                val topLevelComment = snippet.topLevelComment.snippet
+//                val author = topLevelComment.authorDisplayName
+//                val text = topLevelComment.textDisplay
+//                comments.add(CommentDto(videoId, author, text))
+//            }
+//
+//            nextPageToken = response.nextPageToken
+//        } while (!nextPageToken.isNullOrEmpty())
+//
+//        return comments
+//    }
+//}
 
 
 
